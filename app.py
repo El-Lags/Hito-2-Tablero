@@ -362,7 +362,7 @@ with tab3:
             else:
                 def etiqueta(i):
                     f = r.loc[i]
-                    return f'{f["fecha_ejecucion"]:%d-%m-%Y %H:%M}  ·  Línea {f["linea"]}  ·  {ACCIONES.get(f["accion"], f["accion"])}' + ("   (más reciente)" if i == reg.index[0] else "")
+                    return f'{f["fecha_ejecucion"]:%d-%m-%Y %H:%M}  ·  {etiqueta_linea(f["linea"])}  ·  {ACCIONES.get(f["accion"], f["accion"])}' + ("   (más reciente)" if i == reg.index[0] else "")
                 elegida = st.selectbox("Ver recomendación", list(r.index), format_func=etiqueta)
                 u = r.loc[elegida]
                 txt_dec, cls_dec = DECISIONES.get(u["estado_decision"], (u["estado_decision"], "neutral"))
@@ -371,7 +371,7 @@ with tab3:
                 foto = f'{u["clasificacion_imagen"]}' + (f" (prob. de defecto {pct(prob, 1)})" if pd.notna(prob) else "")
                 st.markdown(
                     f'<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
-                    f'<div><span class="nombre">Línea {u["linea"]}</span> <span style="color:#667085;font-size:13px">· {u["fecha_ejecucion"]:%d-%m-%Y %H:%M}</span></div>'
+                    f'<div><span class="nombre">{etiqueta_linea(u["linea"])}</span> <span style="color:#667085;font-size:13px">· {u["fecha_ejecucion"]:%d-%m-%Y %H:%M}</span></div>'
                     f'<div>{pill(ACCIONES.get(u["accion"], u["accion"]), CLASE_ACCION.get(u["accion"], "neutral"))} {pill(txt_dec, cls_dec)}</div></div>'
                     f'<div class="fila"><span>Estado de la serie</span><b>{ESTADOS.get(u["estado_serie"], u["estado_serie"])}</b></div>'
                     f'<div class="fila"><span>Foto de la pieza</span><b>{foto}</b></div>'
