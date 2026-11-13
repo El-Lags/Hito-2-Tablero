@@ -1,0 +1,2 @@
+modelo,umbral,accuracy,precision,recall_defecto,f1,auc,falsos_negativos,falsos_positivos,verdaderos_pos,verdaderos_neg,costo_total,ms_por_imagen_cpu,tamano_MB,parametros_M
+inspeccion por umbral (brillo medio),-0.6017,0.73006993006993,0.7024922118380063,0.9955849889624724,0.8237442922374429,0.8655191008206529,2,191,451,71,211,0.076,0.0,0.0

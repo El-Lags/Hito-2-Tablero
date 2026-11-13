@@ -94,6 +94,8 @@ def cargar():
     df = pd.read_csv(AQUI / "defectos_lineas_largo.csv", parse_dates=["fecha"])
     res = json.loads((AQUI / "resultados_series.json").read_text(encoding="utf-8"))
     img = pd.read_csv(AQUI / "metricas_imagenes.csv")
+    if (AQUI / "metricas_umbral.csv").exists():   # alternativa simple sugerida por el enunciado: inspeccion por umbral
+        img = pd.concat([img, pd.read_csv(AQUI / "metricas_umbral.csv")], ignore_index=True)
     rag = pd.read_csv(AQUI / "metricas_rag.csv")
     return df, res, img, rag
 
@@ -266,13 +268,26 @@ with tab1:
 # ---------------------------------------------------------------- 2. modelos
 with tab2:
     glob = pd.DataFrame([{"Modelo": MODELOS[m][0], "MAE global (pp)": res["mae"][m]["global"] * 100} for m in MODELOS]).sort_values("MAE global (pp)")
-    elegido_img = img[img["modelo"] != "simple (reg. logística)"].sort_values("costo_total").iloc[0]
+    elegido_img = img[img["modelo"].isin(["resnet18", "mobilenet_v2"])].sort_values("costo_total").iloc[0]
     elegido_rag = rag[rag["metodo"].str.contains("elegido")].iloc[0]
     c1, c2, c3 = st.columns(3)
     c1.markdown(tarjeta("Series de tiempo", glob.iloc[0]["Modelo"], f"menor error global ({glob.iloc[0]['MAE global (pp)']:.3f} pp)".replace(".", ","), texto=True), unsafe_allow_html=True)
     c2.markdown(tarjeta("Imágenes", {"resnet18": "ResNet18", "mobilenet_v2": "MobileNetV2"}[elegido_img["modelo"]],
                         f"{int(elegido_img['falsos_negativos'])} defectuosas que pasan · {int(elegido_img['falsos_positivos'])} buenas descartadas", texto=True), unsafe_allow_html=True)
     c3.markdown(tarjeta("Búsqueda en el manual", "Embeddings e5", f"acierta en el top 3 el {elegido_rag['hit@3'] * 100:.0f} % de las consultas", texto=True), unsafe_allow_html=True)
+
+    seccion("Series de tiempo en los datos reales de la planta", "Holt contra el promedio móvil de 7 días en los últimos 30 días de la planilla del curso (86 días en total: poca historia para deep learning).")
+    filas_real = []
+    for l in LINEAS_REAL:
+        a_r = resumen_linea(DF_REAL, l)
+        filas_real.append({"Línea": etiqueta_linea(l), "Estado": ESTADOS[a_r["estado"]], "MAE Holt (pp)": a_r["mae_holt"] * 100,
+                           "MAE promedio móvil (pp)": a_r["mae_promedio_movil"] * 100,
+                           "Mejor modelo": "Holt" if a_r["mejor_modelo"] == "holt" else "Promedio móvil"})
+    tabla_real = pd.DataFrame(filas_real)
+    st.dataframe(tabla_real.style.format({"MAE Holt (pp)": "{:.3f}", "MAE promedio móvil (pp)": "{:.3f}"}), hide_index=True, width="stretch")
+    st.markdown('<div class="nota">En las líneas estables el promedio móvil, más simple, iguala o supera a Holt. Donde hay un cambio de nivel real '
+                "(Línea B) Holt, que sigue la tendencia, se adapta mejor. Con 86 días no se entrena un GRU o LSTM de forma confiable: esa comparación "
+                "se hace sobre la serie simulada de 730 días, más abajo.</div>", unsafe_allow_html=True)
 
     seccion("Series de tiempo (historia simulada)", "El deep learning necesita muchos datos: se comparan los modelos sobre 730 días simulados, con 120 días de prueba nunca vistos al entrenar.")
     ctrl1, ctrl2 = st.columns([1, 2])
@@ -310,6 +325,7 @@ with tab2:
     seccion("Imágenes", "Detección de pieza defectuosa en el conjunto de prueba (715 imágenes de fundición).")
     i = img.copy()
     i["modelo"] = i["modelo"].replace({"simple (reg. logística)": "Alternativa simple (reg. logística)", "resnet18": "ResNet18", "mobilenet_v2": "MobileNetV2"})
+    i["modelo"] = i["modelo"].str.replace("inspeccion por umbral", "Alternativa simple: inspección por umbral", regex=False)
     tabla = i[["modelo", "recall_defecto", "precision", "f1", "falsos_negativos", "falsos_positivos", "costo_total", "ms_por_imagen_cpu", "tamano_MB"]]
     tabla.columns = ["Modelo", "Recall defecto", "Precisión", "F1", "Defectuosas que pasan (FN)", "Buenas descartadas (FP)", "Costo", "ms/imagen CPU", "MB"]
     # Streamlit muestra "None" en celdas vacias: las dos columnas del modelo simple pasan a texto con un guion
@@ -327,7 +343,9 @@ with tab2:
         st.altair_chart(estilo(ge, 200), theme=None, width="stretch")
     st.markdown('<div class="nota">Umbral elegido en validación minimizando costo (un falso negativo cuesta 10 veces un falso positivo: supuesto del equipo). '
                 "Dataset <i>Casting product image data</i> (Kaggle, CC BY-NC-ND 4.0), uso académico; las imágenes no se redistribuyen. "
-                "El resultado es casi perfecto porque el dataset es homogéneo: no se espera igual rendimiento con otra cámara o producto.</div>", unsafe_allow_html=True)
+                "El resultado es casi perfecto porque el dataset es homogéneo: no se espera igual rendimiento con otra cámara o producto. "
+                "<b>Repetimos el entrenamiento y las redes variaron</b> (ResNet18: 3 y 19 buenas descartadas; MobileNetV2: 13 y 8; siempre con cero defectuosas que pasan): "
+                "entre los dos modelos preentrenados no hay una diferencia concluyente.</div>", unsafe_allow_html=True)
 
     seccion("Búsqueda en el manual (RAG)", "Qué tan arriba queda el fragmento correcto del manual para cada consulta.")
     r = rag.copy()
@@ -436,7 +454,7 @@ with tab4:
         }
     r = roi.calcular({**roi.ESCENARIOS[nombre_esc], **ajuste})
     k = st.columns(4)
-    k[0].markdown(tarjeta("Beneficio anual", usd(r["beneficio_anual"]), f"detección temprana {usd(r['beneficio_a'])} · paradas evitadas {usd(r['beneficio_b'])}"), unsafe_allow_html=True)
+    k[0].markdown(tarjeta("Beneficio anual", usd(r["beneficio_anual"]), f"detección {usd(r['beneficio_a'])} · paradas {usd(r['beneficio_b'])} · horas ahorradas {usd(r['beneficio_c'])}"), unsafe_allow_html=True)
     k[1].markdown(tarjeta("Inversión inicial", usd(r["inversion"]), f"operación anual {usd(r['operacion_anual'])}"), unsafe_allow_html=True)
     k[2].markdown(tarjeta("ROI a 3 años", f"{r['roi'] * 100:.0f} %".replace(".", ","), "sobre el costo total del período",
                           "ok" if r["roi"] > 0 else "bad"), unsafe_allow_html=True)
@@ -461,13 +479,15 @@ with tab4:
                     "El escenario optimista es un techo, no una expectativa.</div>", unsafe_allow_html=True)
 
     eq = roi.cambios_para_equilibrio({**roi.ESCENARIOS[nombre_esc], **ajuste})
+    eq_sin_horas = roi.cambios_para_equilibrio({**roi.ESCENARIOS[nombre_esc], **ajuste, "horas_revision_ahorradas_sem": 0})
     medidos = roi.MEDIDO["falsas_alarmas_por_anio_planta"]
     m = st.columns(3)
     m[0].markdown(tarjeta("Demora de detección (medida)", f"{roi.DEMORA_SISTEMA} días", f"contra {ajuste['demora_manual']} días de la revisión manual supuesta"), unsafe_allow_html=True)
     m[1].markdown(tarjeta("Falsas alarmas (medidas)", f"{roi.FALSAS_POR_ANIO:.1f} por año".replace(".", ","),
                           "ninguna propuso detener la línea: costaron revisión, no paradas"), unsafe_allow_html=True)
-    m[2].markdown(tarjeta("Punto de equilibrio", (f"{eq:.2f} cambios/año".replace(".", ",") if eq is not None else "–"),
-                          "cambios de nivel por año con los que el ROI a 3 años es cero"), unsafe_allow_html=True)
+    m[2].markdown(tarjeta("Punto de equilibrio (sin horas ahorradas)", (f"{eq_sin_horas:.2f} cambios/año".replace(".", ",") if eq_sin_horas is not None else "–"),
+                          "cambios de nivel por año con los que el ROI a 3 años es cero si no se cuentan las horas ahorradas"
+                          + (" (contándolas, el sistema se paga sin ningún cambio de nivel)" if eq == 0 else "")), unsafe_allow_html=True)
 
     seccion("¿Qué supuestos mueven más el resultado?", "Cambio en el beneficio neto a 3 años al subir o bajar cada supuesto un 30 %, con los demás en el caso base.")
     sens = pd.DataFrame(roi.sensibilidad()).head(8)
@@ -487,7 +507,7 @@ with tab4:
         ("Datos simulados", "Las series y el manual son inventados; el ROI no se puede extrapolar a una planta real sin sus datos.", "Declarado en todo el sistema; calibrar con datos reales antes de decidir."),
         ("Una sola pieza y cámara", "El modelo de imágenes se entrenó con un tipo de pieza y encuadre. Con otra cámara, luz o producto puede fallar sin avisar (probó 100 % de probabilidad con una imagen de ruido).", "Validar con fotos de la planta; la foto solo confirma, no decide sola."),
         ("Falsas alarmas por referencia fija", "El gráfico de control usa los primeros 60 días como referencia. Con una deriva lenta aparecen alertas falsas (unas 8 por año), aunque ninguna propuso detener.", "Recalcular la referencia periódicamente; el humano revisa cada alerta."),
-        ("Falso negativo", "Una pieza defectuosa que pasa como buena es el error más caro (10 veces el de un falso positivo, supuesto).", "Umbral bajo (0,16) elegido por costo; recall del 100 % en prueba, no garantizado en planta."),
+        ("Falso negativo", "Una pieza defectuosa que pasa como buena es el error más caro (10 veces el de un falso positivo, supuesto).", "Umbral bajo elegido por costo; recall del 100 % en las dos corridas de prueba, no garantizado en planta."),
         ("Sesgo de automatización", "Una persona puede aprobar por inercia lo que el sistema recomienda.", "El mensaje muestra la evidencia y la cita del manual; rechazar es igual de fácil."),
         ("Errores del LLM", "Puede redactar mal o inventar. Ya escribió mal “línea” y confundió “superar la meta” con estar bajo ella.", "La acción la fija una regla; solo se aceptan citas de fragmentos recuperados; se corrige la ortografía."),
         ("Evaluaciones optimistas", "El manual y las preguntas de prueba del RAG las escribió la misma persona; el conjunto de imágenes es homogéneo.", "Declarado; ampliar con preguntas de otros integrantes y datos reales."),

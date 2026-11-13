@@ -39,6 +39,7 @@ SUPUESTOS = {
     "demora_manual":         (10,    "días",        "Días que tarda la revisión manual de planillas en detectar el cambio", "supuesto"),
     "atipicos_por_anio":     (1.5,   "eventos/año", "Valores atípicos reales en la planta", "medido en la simulación (3 en 2 años)"),
     "prob_parada_sin_sis":   (0.5,   "fracción",    "Probabilidad de que, sin el sistema, un atípico termine en parada de línea", "supuesto"),
+    "horas_revision_ahorradas_sem": (3, "horas/semana", "Horas semanales de revisión manual de planillas y reportes que el sistema evita", "supuesto"),
     "horas_parada":          (2,     "horas",       "Duración de una parada innecesaria", "supuesto"),
     "costo_hora_parada":     (1250,  "USD/hora",    "Costo de una hora de línea detenida (62,5 piezas/h × 20 USD de margen)", "supuesto"),
     "horas_implementacion":  (120,   "horas",       "Horas de implementación del sistema", "supuesto"),
@@ -54,9 +55,10 @@ BASE = {k: v[0] for k, v in SUPUESTOS.items()}
 
 ESCENARIOS = {  # solo se listan los supuestos que cambian respecto del caso base
     "Pesimista": {"cambios_por_anio": 0.5, "demora_manual": 5, "prob_escape": 0.10, "prob_parada_sin_sis": 0.3,
-                  "horas_implementacion": 160, "costo_camara": 600},
+                  "horas_implementacion": 160, "costo_camara": 600, "horas_revision_ahorradas_sem": 1},
     "Base": {},
-    "Optimista": {"cambios_por_anio": 4.0, "demora_manual": 14, "prob_escape": 0.20, "prob_parada_sin_sis": 0.7},
+    "Optimista": {"cambios_por_anio": 4.0, "demora_manual": 14, "prob_escape": 0.20, "prob_parada_sin_sis": 0.7,
+                  "horas_revision_ahorradas_sem": 5},
 }
 ANIOS = 3
 
@@ -68,7 +70,8 @@ def calcular(s=None, anios=ANIOS):
     defectos_evitados = s["cambios_por_anio"] * s["aumento_tasa"] * s["piezas_dia_linea"] * dias_ganados
     beneficio_a = defectos_evitados * costo_defecto
     beneficio_b = s["atipicos_por_anio"] * s["prob_parada_sin_sis"] * s["horas_parada"] * s["costo_hora_parada"]
-    beneficio = beneficio_a + beneficio_b
+    beneficio_c = s["horas_revision_ahorradas_sem"] * 52 * s["costo_hora_analista"]   # horas de revision manual ahorradas
+    beneficio = beneficio_a + beneficio_b + beneficio_c
 
     inversion = s["horas_implementacion"] * s["costo_hora_tecnico"] + s["costo_camara"] * s["lineas"]
     operacion = (s["servidor_mensual"] * 12 + s["api_llm_anual"] + s["horas_mantencion_mes"] * 12 * s["costo_hora_tecnico"]
@@ -83,7 +86,8 @@ def calcular(s=None, anios=ANIOS):
     roi = (beneficio * anios - costo_total) / costo_total
     payback_meses = inversion / neto_anual * 12 if neto_anual > 0 else None
     return {
-        "beneficio_a": beneficio_a, "beneficio_b": beneficio_b, "beneficio_anual": beneficio, "defectos_evitados": defectos_evitados,
+        "beneficio_a": beneficio_a, "beneficio_b": beneficio_b, "beneficio_c": beneficio_c, "beneficio_anual": beneficio,
+        "defectos_evitados": defectos_evitados,
         "inversion": inversion, "operacion_anual": operacion, "neto_anual": neto_anual, "flujo_acumulado": flujo,
         "costo_total": costo_total, "roi": roi, "payback_meses": payback_meses, "costo_medio_defecto": costo_defecto,
     }
@@ -115,7 +119,7 @@ def cambios_para_equilibrio(s=None):
     if por_cambio <= 0:
         return None
     beneficio_necesario = r0["costo_total"] / ANIOS          # beneficio anual que iguala el costo total a 3 anios
-    return max((beneficio_necesario - r0["beneficio_b"]) / por_cambio, 0)
+    return max((beneficio_necesario - r0["beneficio_b"] - r0["beneficio_c"]) / por_cambio, 0)
 
 
 if __name__ == "__main__":
